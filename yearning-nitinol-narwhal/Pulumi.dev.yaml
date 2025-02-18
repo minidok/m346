@@ -1,0 +1,6 @@
+config:
+  aws:region: us-west-2
+  pulumi:template: container-aws-python
+  yearning-nitinol-narwhal:containerPort: "80"
+  yearning-nitinol-narwhal:cpu: "512"
+  yearning-nitinol-narwhal:memory: "128"
