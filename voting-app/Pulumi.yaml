@@ -3,8 +3,9 @@ runtime:
   name: python
   options:
     virtualenv: venv
+    toolchain: pip
 description: Voting app that uses containers
 config:
   pulumi:tags:
     value:
-      pulumi:template: https://github.com/pulumi/examples/blob/master/aws-py-voting-app/README.md
+      pulumi:template: https://github.com/pulumi/examples/tree/master/aws-py-voting-app

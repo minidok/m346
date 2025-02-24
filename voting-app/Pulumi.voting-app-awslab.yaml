@@ -1,0 +1,5 @@
+config:
+  aws:region: us-east-1
+  pulumi:template: https://github.com/pulumi/examples/tree/master/aws-py-voting-app
+  voting-app:redis-password:
+    secure: AAABAKwXneBqfMHDyfvIOaxpx6IIyXnbJP1EiUz05Yv9K2ubbHw=
