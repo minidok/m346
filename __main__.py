@@ -6,7 +6,6 @@ import json
 import pulumi
 import pulumi_aws as aws
 import pulumi_awsx as awsx
-#import pulumi_docker as docker
 
 # Get the password to use for Redis from the pulumi config
 config = pulumi.Config()
@@ -118,9 +117,6 @@ redis_task_definition = aws.ecs.TaskDefinition(
     cpu="256",
     memory="512",
     network_mode="awsvpc",
-#    execution_role_arn=existing_role_arn,
-#    task_role_arn=existing_role_arn,
-
     requires_compatibilities=["FARGATE"],
     container_definitions=json.dumps(
         [
