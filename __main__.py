@@ -5,7 +5,8 @@ import json
 
 import pulumi
 import pulumi_aws as aws
-import pulumi_docker as docker
+import pulumi_awsx as awsx
+#import pulumi_docker as docker
 
 # Get the password to use for Redis from the pulumi config
 config = pulumi.Config()
@@ -63,77 +64,17 @@ app_security_group = aws.ec2.SecurityGroup(
 )
 
 # Creating an IAM role used by Fargate to execute all our services
-app_exec_role = aws.iam.Role(
-    "app-exec-role",
-    assume_role_policy="""{
-        "Version": "2012-10-17",
-        "Statement": [
-        {
-            "Action": "sts:AssumeRole",
-            "Principal": {
-                "Service": "ecs-tasks.amazonaws.com"
-            },
-            "Effect": "Allow",
-            "Sid": ""
-        }]
-    }""",
-)
 
 # Attaching execution permissions to the exec role
-exec_policy_attachment = aws.iam.RolePolicyAttachment(
-    "app-exec-policy",
-    role=app_exec_role.name,
-    policy_arn="arn:aws:iam::aws:policy/service-role/AmazonECSTaskExecutionRolePolicy",
-)
 
 # Creating an IAM role used by Fargate to manage tasks
-app_task_role = aws.iam.Role(
-    "app-task-role",
-    assume_role_policy="""{
-        "Version": "2012-10-17",
-        "Statement": [
-        {
-            "Action": "sts:AssumeRole",
-            "Principal": {
-                "Service": "ecs-tasks.amazonaws.com"
-            },
-            "Effect": "Allow",
-            "Sid": ""
-        }]
-    }""",
-)
+
 
 # Attaching execution permissions to the task role
-task_policy_attachment = aws.iam.RolePolicyAttachment(
-    "app-access-policy",
-    role=app_task_role.name,
-    policy_arn=aws.iam.ManagedPolicy.AMAZON_ECS_FULL_ACCESS,
-)
+
 
 # Creating storage space to upload a docker image of our app to
-app_ecr_repo = aws.ecr.Repository("app-ecr-repo", image_tag_mutability="MUTABLE")
-
-# Attaching an application life cycle policy to the storage
-app_lifecycle_policy = aws.ecr.LifecyclePolicy(
-    "app-lifecycle-policy",
-    repository=app_ecr_repo.name,
-    policy="""{
-        "rules": [
-            {
-                "rulePriority": 10,
-                "description": "Remove untagged images",
-                "selection": {
-                    "tagStatus": "untagged",
-                    "countType": "imageCountMoreThan",
-                    "countNumber": 1
-                },
-                "action": {
-                    "type": "expire"
-                }
-            }
-        ]
-    }""",
-)
+app_ecr_repo = awsx.ecr.Repository("app-ecr-repo", awsx.ecr.RepositoryArgs(force_delete=True))
 
 # The application's backend and data layer: Redis
 
@@ -141,11 +82,11 @@ app_lifecycle_policy = aws.ecr.LifecyclePolicy(
 redis_targetgroup = aws.lb.TargetGroup(
     "redis-targetgroup",
     port=redis_port,
-    protocol="TCP",
     target_type="ip",
+    protocol = "TCP",
     stickiness=aws.lb.TargetGroupStickinessArgs(
         enabled=False,
-        type="lb_cookie",
+        type="source_ip",
     ),
     vpc_id=app_vpc.id,
 )
@@ -177,9 +118,10 @@ redis_task_definition = aws.ecs.TaskDefinition(
     cpu="256",
     memory="512",
     network_mode="awsvpc",
+#    execution_role_arn=existing_role_arn,
+#    task_role_arn=existing_role_arn,
+
     requires_compatibilities=["FARGATE"],
-    execution_role_arn=app_exec_role.arn,
-    task_role_arn=app_task_role.arn,
     container_definitions=json.dumps(
         [
             {
@@ -233,11 +175,11 @@ redis_endpoint = {"host": redis_balancer.dns_name, "port": redis_port}
 flask_targetgroup = aws.lb.TargetGroup(
     "flask-targetgroup",
     port=80,
-    protocol="TCP",
     target_type="ip",
+    protocol="TCP",
     stickiness=aws.lb.TargetGroupStickinessArgs(
         enabled=False,
-        type="lb_cookie",
+        type="source_ip",
     ),
     vpc_id=app_vpc.id,
 )
@@ -265,26 +207,17 @@ flask_listener = aws.lb.Listener(
 
 # Creating a Docker image from "./frontend/Dockerfile", which we will use
 # to upload our app
-def get_registry_info(rid):
-    creds = aws.ecr.get_credentials(registry_id=rid)
-    decoded = base64.b64decode(creds.authorization_token).decode()
-    parts = decoded.split(":")
-    if len(parts) != 2:
-        raise Exception("Invalid credentials")
-    return docker.ImageRegistry(creds.proxy_endpoint, parts[0], parts[1])
 
-
-app_registry = app_ecr_repo.registry_id.apply(get_registry_info)
-
-flask_image = docker.Image(
-    "flask-dockerimage",
-    image_name=app_ecr_repo.repository_url,
-    build="./frontend",
-    skip_push=False,
-    registry=app_registry,
+flask_image = awsx.ecr.Image(
+    "flask-dockerimage", awsx.ecr.ImageArgs(repository_url=app_ecr_repo.url, context="./frontend", platform="linux/amd64"),
 )
 
 # Creating a task definition for the Flask instance.
+
+# Replace 'existing-role-arn' with the ARN of your existing role
+existing_role_arn = "arn:aws:iam::015832182903:role/LabRole"
+# existing_role = aws.iam.Role.get("LabRole", existing_role_arn)
+
 flask_task_definition = aws.ecs.TaskDefinition(
     "flask-task-definition",
     family="frontend-task-definition-family",
@@ -292,13 +225,13 @@ flask_task_definition = aws.ecs.TaskDefinition(
     memory="512",
     network_mode="awsvpc",
     requires_compatibilities=["FARGATE"],
-    execution_role_arn=app_exec_role.arn,
-    task_role_arn=app_task_role.arn,
+    execution_role_arn=existing_role_arn,
+    task_role_arn=existing_role_arn, 
     container_definitions=pulumi.Output.json_dumps(
         [
             {
                 "name": "flask-container",
-                "image": flask_image.image_name,
+                "image": flask_image.image_uri,
                 "memory": 512,
                 "essential": True,
                 "portMappings": [{"containerPort": 80, "hostPort": 80, "protocol": "tcp"}],
@@ -306,7 +239,7 @@ flask_task_definition = aws.ecs.TaskDefinition(
                     {"name": "REDIS", "value": redis_endpoint["host"]},
                     {
                         "name": "REDIS_PORT",
-                        "value": redis_endpoint["port"].apply(lambda x: str(x)),
+                        "value": str(redis_endpoint["port"]),
                     },
                     {"name": "REDIS_PWD", "value": redis_password},
                 ],
