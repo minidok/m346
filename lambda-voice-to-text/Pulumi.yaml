@@ -1,0 +1,10 @@
+name: vivacious-silver-axolotl
+runtime:
+  name: python
+  options:
+    virtualenv: venv
+description: a lambda function, which translates voice into text
+config:
+  pulumi:tags:
+    value:
+      pulumi:template: https://www.pulumi.com/ai/api/project/de296807-56df-4915-8bd2-b1c474b4f3ff.zip
